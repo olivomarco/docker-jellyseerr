@@ -1,0 +1,64 @@
+volumes:
+  jellyseerr_config: {}
+
+networks:
+  traefik:
+    external: true
+
+services:
+  jellyseerr:
+    image: ghcr.io/fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      LOG_LEVEL: debug
+      TZ: Europe/Rome
+      PORT: 5055
+    volumes:
+      - jellyseerr_config:/app/config:rw
+      - /etc/timezone:/etc/timezone:ro
+    logging:
+      driver: syslog
+      options:
+        tag: docker/jellyseerr
+    labels:
+      - "traefik.enable=true"
+
+      # Service definition
+      - "traefik.http.services.jellyseerr-svc.loadbalancer.server.port=5055"
+
+      # HTTPS Router
+      - "traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.${EXT_DOMAIN}`)"
+      - "traefik.http.routers.jellyseerr.entrypoints=websecure"
+      - "traefik.http.routers.jellyseerr.tls=true"
+      - "traefik.http.routers.jellyseerr.tls.certresolver=myresolver"
+      - "traefik.http.routers.jellyseerr.service=jellyseerr-svc"
+      - "traefik.http.routers.jellyseerr.middlewares=jellyseerr-headers,jellyseerr-ratelimit"
+
+      # HTTP → HTTPS redirect
+      - "traefik.http.routers.jellyseerr-http.rule=Host(`jellyseerr.${EXT_DOMAIN}`)"
+      - "traefik.http.routers.jellyseerr-http.entrypoints=web"
+      - "traefik.http.routers.jellyseerr-http.middlewares=jellyseerr-https-redirect"
+      - "traefik.http.middlewares.jellyseerr-https-redirect.redirectscheme.scheme=https"
+
+      # === Security Headers ===
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.X-XSS-Protection=1; mode=block"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.Strict-Transport-Security=max-age=31536000; includeSubDomains"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.X-Frame-Options=DENY"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.Server="
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.Permissions-Policy=accelerometer=(), ambient-light-sensor=(), autoplay=('self'), camera=(), encrypted-media=('self'), fullscreen=('self'), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=('self'), speaker=('self'), sync-xhr=(), usb=(), vr=()"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.Pragma=no-cache"
+      - "traefik.http.middlewares.jellyseerr-headers.headers.customresponseheaders.Cache-Control=no-store"
+
+      # CSP
+      - "traefik.http.middlewares.jellyseerr-headers.headers.contentsecuritypolicy=upgrade-insecure-requests; frame-ancestors 'self'"
+
+      # Rate Limit
+      - "traefik.http.middlewares.jellyseerr-ratelimit.ratelimit.average=30"
+      - "traefik.http.middlewares.jellyseerr-ratelimit.ratelimit.burst=60"
+
+    networks:
+      - traefik
+    restart: unless-stopped
+
